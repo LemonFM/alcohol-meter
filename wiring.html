@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ผังวงจรเครื่องวัดแอลกอฮอล์</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  /* Layout: one diagram card on top, simulator controls under it, then wiring + threshold tables */
+  :root {
+    --bg: #eef2f6;
+    --card: #ffffff;
+    --fg: #17202b;
+    --muted: #5a6878;
+    --line: #d5dde6;
+    --accent: #1f6fd1;
+    --wire-gnd: #26313d;
+    --pin-label: #e9eef4;
+    --font: "IBM Plex Sans Thai", "Sukhumvit Set", "Thonburi", "Noto Sans Thai", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10161d; --card: #18212b; --fg: #e6edf4; --muted: #93a3b5;
+      --line: #2b3946; --accent: #5aa2ff; --wire-gnd: #b9c4cf; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10161d; --card: #18212b; --fg: #e6edf4; --muted: #93a3b5;
+    --line: #2b3946; --accent: #5aa2ff; --wire-gnd: #b9c4cf; color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font);
+    font-size: 15px; line-height: 1.6;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 24px 40px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 20px; }
+  header h1 { margin: 0; font-size: 26px; line-height: 1.3; text-wrap: balance; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; min-width: 0; }
+  .card h2 { margin: 0 0 12px; font-size: 18px; }
+
+  .diagram { overflow-x: auto; }
+  .diagram svg { display: block; width: 100%; min-width: 900px; height: auto; }
+  .toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; position: sticky; left: 0; }
+  .toolbar span { color: var(--muted); font-size: 13px; }
+  .btn {
+    font: 600 14px var(--font); padding: 8px 16px; border-radius: 9px; cursor: pointer;
+    border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn:disabled { opacity: .6; cursor: progress; }
+
+  /* wires */
+  .wire { fill: none; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; transition: opacity .15s, stroke-width .15s; }
+  svg.focus .wire { opacity: .15; }
+  svg.focus .wire.hl { opacity: 1; stroke-width: 6; }
+  .w-vin  { stroke: #e0372b; }
+  .w-gnd  { stroke: var(--wire-gnd); }
+  .w-a0   { stroke: #7a52d6; }
+  .w-d7   { stroke: #d42a2a; }
+  .w-d6   { stroke: #e3ac00; }
+  .w-d5   { stroke: #1d9a52; }
+  .w-3v3  { stroke: #f08000; }
+  .w-scl  { stroke: #1597cf; }
+  .w-sda  { stroke: #c2399a; }
+
+  .svg-title { font: 600 15px var(--font); fill: var(--fg); }
+  .svg-note  { font: 400 12px var(--font); fill: var(--muted); }
+  .pin-lbl   { font: 500 9px var(--mono); fill: var(--pin-label); }
+  .mod-lbl   { font: 600 11px var(--mono); fill: #ffffff; }
+  .res-lbl   { font: 500 11px var(--mono); fill: var(--muted); }
+
+  /* LEDs */
+  .led-body { transition: fill .2s, filter .2s; }
+  .led-r .led-body { fill: #6e2a2a; }  .led-r.on .led-body { fill: #ff3b30; filter: drop-shadow(0 0 8px #ff3b30); }
+  .led-y .led-body { fill: #6e5a1c; }  .led-y.on .led-body { fill: #ffd21f; filter: drop-shadow(0 0 8px #ffd21f); }
+  .led-g .led-body { fill: #1f5a37; }  .led-g.on .led-body { fill: #2ee66f; filter: drop-shadow(0 0 8px #2ee66f); }
+
+  /* OLED */
+  .oled-screen { fill: #05080c; }
+  .oled-text { fill: #cfe8ff; font-family: var(--mono); }
+  .oled.danger .oled-screen { animation: invert-bg 1s steps(1) infinite; }
+  .oled.danger .oled-text   { animation: invert-fg 1s steps(1) infinite; }
+  @keyframes invert-bg { 50% { fill: #cfe8ff; } }
+  @keyframes invert-fg { 50% { fill: #05080c; } }
+
+  /* simulator */
+  .sim { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  .readout { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: baseline; margin-bottom: 10px; }
+  .readout b { font: 600 26px var(--mono); }
+  .readout span { color: var(--muted); font-size: 13px; }
+  .pill { display: inline-block; padding: 2px 12px; border-radius: 999px; font-weight: 600; font-size: 14px; color: #fff; }
+  .pill.l0 { background: #1d9a52; } .pill.l1 { background: #c58f00; } .pill.l2 { background: #d42a2a; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .scale { position: relative; height: 22px; font: 500 11px var(--mono); color: var(--muted); }
+  .scale i { position: absolute; transform: translateX(-50%); font-style: normal; white-space: nowrap; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .presets button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  }
+  .presets button:hover { border-color: var(--accent); }
+  .presets button:focus-visible, input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .tg { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .tg small { color: var(--muted); display: block; margin-bottom: 6px; }
+  .tg pre { margin: 0; white-space: pre-wrap; font: 14px/1.55 var(--font); }
+
+  /* tables */
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+  .tbl-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  td code { font-family: var(--mono); font-size: 13px; }
+  tbody tr[data-k] { cursor: default; }
+  tbody tr[data-k]:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .sw { display: inline-block; width: 18px; height: 5px; border-radius: 3px; vertical-align: middle; margin-right: 6px; }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .notes { margin: 0; padding-left: 20px; }
+  .notes li + li { margin-top: 4px; }
+  .muted { color: var(--muted); }
+
+  @media (max-width: 760px) { .sim { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) {
+    .oled.danger .oled-screen, .oled.danger .oled-text { animation: none; }
+    .wire, .led-body { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>ผังวงจรเครื่องวัดแอลกอฮอล์ ESP8266 + MQ-3</h1>
+    <p>ต่อตามโค้ดล่าสุด: LED ที่ D5/D6/D7, MQ-3 ที่ A0, จอ OLED SSD1315 ที่ D1/D2 · ชี้ที่แถวในตารางเพื่อไฮไลต์สายเส้นนั้น</p>
+  </header>
+
+  <section class="card diagram" aria-label="ผังการต่อสาย">
+    <div class="toolbar">
+      <span id="saveMsg" role="status"></span>
+      <button id="savePng" class="btn" type="button">บันทึกเป็นภาพ PNG</button>
+    </div>
+    <svg id="board" viewBox="0 0 1150 650" role="img" aria-label="ผังวงจร NodeMCU ESP8266 ต่อกับ MQ-3, LED 3 ดวง และจอ OLED">
+      <!-- ===== Power bank ===== -->
+      <text class="svg-title" x="125" y="192" text-anchor="middle">Power Bank 5V / USB</text>
+      <rect x="40" y="205" width="170" height="110" rx="16" fill="#2a3038"/>
+      <rect x="50" y="215" width="150" height="90" rx="10" fill="#353c46"/>
+      <text x="125" y="268" text-anchor="middle" fill="#e6edf4" style="font: 700 26px var(--mono)">5V</text>
+      <path d="M210 260 C 240 260, 240 260, 268 260" stroke="#7d8896" stroke-width="7" fill="none" stroke-linecap="round"/>
+      <text class="svg-note" x="125" y="336" text-anchor="middle">หรือสาย USB จาก Mac</text>
+
+      <!-- ===== NodeMCU board ===== -->
+      <text class="svg-title" x="400" y="162">NodeMCU V3 · ESP8266 (ESP-12F)</text>
+      <rect x="290" y="170" width="480" height="180" rx="10" fill="#1b222b" stroke="#0e1318" stroke-width="2"/>
+      <!-- micro USB -->
+      <rect x="268" y="246" width="30" height="28" rx="3" fill="#b9c2cc" stroke="#808b97"/>
+      <!-- buttons -->
+      <rect x="326" y="231" width="20" height="16" rx="3" fill="#cfd6de"/><circle cx="336" cy="239" r="5" fill="#3b444f"/>
+      <rect x="326" y="275" width="20" height="16" rx="3" fill="#cfd6de"/><circle cx="336" cy="283" r="5" fill="#3b444f"/>
+      <text class="pin-lbl" x="352" y="243">RST</text>
+      <text class="pin-lbl" x="352" y="287">FLASH</text>
+      <!-- USB chip -->
+      <rect x="392" y="242" width="40" height="36" rx="3" fill="#0b0f14"/>
+      <text class="pin-lbl" x="412" y="263" text-anchor="middle">CH9102</text>
+      <!-- ESP-12F module -->
+      <rect x="455" y="224" width="160" height="72" rx="4" fill="#c9ced4" stroke="#9aa3ad"/>
+      <text x="535" y="256" text-anchor="middle" style="font: 700 15px var(--mono)" fill="#3a434d">ESP-12F</text>
+      <text x="535" y="274" text-anchor="middle" style="font: 500 10px var(--mono)" fill="#56606b">ESP8266MOD</text>
+      <!-- antenna -->
+      <path d="M628 236 H748 V250 H640 V264 H748 V278 H628" fill="none" stroke="#d9b45a" stroke-width="3"/>
+
+      <g id="pins-top"></g>
+      <g id="pins-bottom"></g>
+
+      <!-- ===== MQ-3 ===== -->
+      <text class="svg-title" x="1020" y="38" text-anchor="middle">เซนเซอร์ MQ-3</text>
+      <rect x="920" y="50" width="200" height="160" rx="10" fill="#1d4f9e"/>
+      <circle cx="1050" cy="130" r="52" fill="#e8742a"/>
+      <circle cx="1050" cy="130" r="36" fill="#9aa1a8"/>
+      <circle cx="1050" cy="130" r="36" fill="url(#mesh)"/>
+      <g class="mod-lbl">
+        <text x="934" y="84">VCC</text>
+        <text x="934" y="114">GND</text>
+        <text x="934" y="144" opacity=".55">DO</text>
+        <text x="934" y="174">AO</text>
+      </g>
+      <g fill="#d6b65a">
+        <rect x="904" y="77" width="16" height="6" rx="2"/>
+        <rect x="904" y="107" width="16" height="6" rx="2"/>
+        <rect x="904" y="137" width="16" height="6" rx="2" opacity=".55"/>
+        <rect x="904" y="167" width="16" height="6" rx="2"/>
+      </g>
+      <text class="svg-note" x="898" y="135" text-anchor="end">DO ไม่ต่อ</text>
+
+      <!-- ===== OLED ===== -->
+      <rect x="610" y="470" width="190" height="130" rx="8" fill="#1a2f55"/>
+      <g fill="#d6b65a">
+        <rect x="637" y="455" width="6" height="16" rx="2"/>
+        <rect x="667" y="455" width="6" height="16" rx="2"/>
+        <rect x="717" y="455" width="6" height="16" rx="2"/>
+        <rect x="747" y="455" width="6" height="16" rx="2"/>
+      </g>
+      <g class="mod-lbl" text-anchor="middle" style="font-size:9px">
+        <text x="640" y="486">GND</text>
+        <text x="670" y="486">VCC</text>
+        <text x="720" y="486">SCL</text>
+        <text x="750" y="486">SDA</text>
+      </g>
+      <g id="oled" class="oled">
+        <rect class="oled-screen" x="625" y="494" width="160" height="94" rx="3"/>
+        <text id="o1" class="oled-text" x="634" y="516" style="font-size:17px;font-weight:600">SAFE</text>
+        <text id="o2" class="oled-text" x="634" y="540" style="font-size:16px">0.000<tspan style="font-size:10px"> mg/L</tspan></text>
+        <text id="o3" class="oled-text" x="634" y="561" style="font-size:10px">raw: 252 / 1023</text>
+        <text id="o4" class="oled-text" x="634" y="578" style="font-size:10px">WiFi: OK</text>
+      </g>
+      <text class="svg-title" x="705" y="622" text-anchor="middle">จอ OLED SSD1315 0.96"</text>
+
+      <!-- ===== LEDs ===== -->
+      <g id="leds"></g>
+      <text class="svg-title" x="450" y="636" text-anchor="middle">LED แสดงสถานะ</text>
+
+      <!-- ===== Wires (drawn last so they sit on top of module edges) ===== -->
+      <path class="wire w-vin" data-k="vin" d="M320 188 V70 H870 V80 H904"/>
+      <path class="wire w-gnd" data-k="mqgnd" d="M350 188 V100 H880 V110 H904"/>
+      <path class="wire w-a0"  data-k="a0"  d="M710 188 V150 H890 V170 H904"/>
+
+      <path class="wire w-d7" data-k="d7" d="M470 332 V380 H380 V440"/>
+      <path class="wire w-d6" data-k="d6" d="M500 332 V400 H450 V440"/>
+      <path class="wire w-d5" data-k="d5" d="M530 332 V420 H520 V440"/>
+      <path class="wire w-gnd" data-k="ledgnd" d="M350 332 V600 H540"/>
+      <path class="wire w-gnd" data-k="ledgnd" d="M380 548 V600 M450 548 V600 M520 548 V600"/>
+
+      <path class="wire w-gnd" data-k="oledgnd" d="M560 332 V440 H640 V455"/>
+      <path class="wire w-3v3" data-k="oledvcc" d="M590 332 V420 H670 V455"/>
+      <path class="wire w-scl" data-k="scl" d="M710 332 V430 H720 V455"/>
+      <path class="wire w-sda" data-k="sda" d="M680 332 V390 H704 A6 6 0 0 1 716 390 H750 V455"/>
+
+      <g fill="var(--wire-gnd)">
+        <circle cx="380" cy="600" r="5"/><circle cx="450" cy="600" r="5"/><circle cx="520" cy="600" r="5"/>
+      </g>
+
+      <defs>
+        <pattern id="mesh" width="6" height="6" patternUnits="userSpaceOnUse">
+          <rect width="6" height="6" fill="#8b9299"/>
+          <circle cx="3" cy="3" r="1.4" fill="#5f666d"/>
+        </pattern>
+      </defs>
+    </svg>
+  </section>
+
+  <section class="card">
+    <h2>จำลองค่าที่เซนเซอร์อ่านได้</h2>
+    <div class="sim">
+      <div>
+        <div class="readout">
+          <div><span>raw</span><br><b id="vRaw">252</b></div>
+          <div><span>แอลกอฮอล์ (ลมหายใจ)</span><br><b id="vMgl">0.000</b> <span>mg/L</span></div>
+          <div><span>เทียบในเลือด</span><br><b id="vMgp">0</b> <span>mg%</span></div>
+          <div><span>ระดับ</span><br><span id="vLvl" class="pill l0">ต่ำ</span></div>
+        </div>
+        <label for="raw" class="muted" style="font-size:13px">ลากเพื่อเปลี่ยนค่า raw (0 – 1023)</label>
+        <input id="raw" type="range" min="0" max="1023" value="252">
+        <div class="scale" aria-hidden="true">
+          <i style="left:0%;transform:none">0</i>
+          <i style="left:24.6%">252</i>
+          <i style="left:32.5%">332</i>
+          <i style="left:61.1%">625</i>
+          <i style="left:100%;transform:translateX(-100%)">1023</i>
+        </div>
+        <div class="presets">
+          <button type="button" data-v="252">อากาศสะอาด (252)</button>
+          <button type="button" data-v="450">พบแอลกอฮอล์เล็กน้อย (450)</button>
+          <button type="button" data-v="780">เกินกฎหมาย (780)</button>
+          <button type="button" data-v="1023">เต็มสเกล (1023)</button>
+        </div>
+      </div>
+      <div class="tg">
+        <small>ข้อความที่จะส่งเข้า Telegram เมื่อสถานะเปลี่ยน</small>
+        <pre id="tgMsg"></pre>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>ตารางการต่อสาย</h2>
+      <div class="tbl-wrap">
+        <table id="wiring">
+          <thead><tr><th>อุปกรณ์</th><th>ขาอุปกรณ์</th><th>ต่อที่ ESP8266</th></tr></thead>
+          <tbody>
+            <tr data-k="vin"><td><span class="sw" style="background:#e0372b"></span>MQ-3</td><td>VCC</td><td><code>Vin</code> (5V)</td></tr>
+            <tr data-k="mqgnd"><td><span class="sw" style="background:var(--wire-gnd)"></span>MQ-3</td><td>GND</td><td><code>GND</code></td></tr>
+            <tr data-k="a0"><td><span class="sw" style="background:#7a52d6"></span>MQ-3</td><td>AO</td><td><code>A0</code></td></tr>
+            <tr><td><span class="sw" style="background:var(--line)"></span>MQ-3</td><td>DO</td><td class="muted">ไม่ต่อ</td></tr>
+            <tr data-k="d7"><td><span class="sw" style="background:#d42a2a"></span>LED แดง</td><td>ขายาว (+)</td><td><code>D7</code> (GPIO 13)</td></tr>
+            <tr data-k="d6"><td><span class="sw" style="background:#e3ac00"></span>LED เหลือง</td><td>ขายาว (+)</td><td><code>D6</code> (GPIO 12)</td></tr>
+            <tr data-k="d5"><td><span class="sw" style="background:#1d9a52"></span>LED เขียว</td><td>ขายาว (+)</td><td><code>D5</code> (GPIO 14)</td></tr>
+            <tr data-k="ledgnd"><td><span class="sw" style="background:var(--wire-gnd)"></span>LED ทั้ง 3</td><td>ขาสั้น (−) → 220Ω</td><td><code>GND</code></td></tr>
+            <tr data-k="oledvcc"><td><span class="sw" style="background:#f08000"></span>OLED</td><td>VCC</td><td><code>3V3</code></td></tr>
+            <tr data-k="oledgnd"><td><span class="sw" style="background:var(--wire-gnd)"></span>OLED</td><td>GND</td><td><code>GND</code></td></tr>
+            <tr data-k="scl"><td><span class="sw" style="background:#1597cf"></span>OLED</td><td>SCL</td><td><code>D1</code> (GPIO 5)</td></tr>
+            <tr data-k="sda"><td><span class="sw" style="background:#c2399a"></span>OLED</td><td>SDA</td><td><code>D2</code> (GPIO 4)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>เกณฑ์ระดับแอลกอฮอล์</h2>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>ระดับ</th><th>raw</th><th>ลมหายใจ</th><th>ในเลือด</th></tr></thead>
+          <tbody>
+            <tr><td><span class="pill l0">ต่ำ</span></td><td class="num">&lt; 332</td><td class="num">&lt; 0.10 mg/L</td><td class="num">&lt; 20 mg%</td></tr>
+            <tr><td><span class="pill l1">กลาง</span></td><td class="num">332 – 625</td><td class="num">0.10 – 0.25</td><td class="num">20 – 50</td></tr>
+            <tr><td><span class="pill l2">สูง</span></td><td class="num">&gt; 625</td><td class="num">&gt; 0.25 mg/L</td><td class="num">&gt; 50 mg%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="notes" style="margin-top:12px">
+        <li>อากาศสะอาด ≈ <b>252</b> วัดจริงจากเซนเซอร์ที่ใช้</li>
+        <li>เกณฑ์ 20 / 50 mg% และค่าสัมประสิทธิ์ลมหายใจ 2,000 ตามกฎกระทรวงการทดสอบปริมาณแอลกอฮอล์ในร่างกายของผู้ขับขี่ พ.ศ. 2567</li>
+        <li class="muted">ค่า mg/L เป็นค่าประมาณ ใช้เพื่อการเตือน ไม่ใช่เครื่องวัดมาตรฐาน</li>
+      </ul>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>ข้อควรระวังตอนต่อจริง</h2>
+    <ul class="notes">
+      <li>LED ต้องมีตัวต้านทาน 220Ω–330Ω ทุกดวง ห้ามต่อตรง</li>
+      <li>ลำดับขาจอ OLED แต่ละรุ่นอาจต่างกัน (GND-VCC หรือ VCC-GND) ให้อ่านชื่อขาบนจอก่อนเสียบ</li>
+      <li>MQ-3 ใช้ไฟ 5V จาก <code>Vin</code> แต่ขา A0 รับได้ประมาณ 3.2V ถ้าค่าตันที่ 1023 บ่อย ให้ใส่ตัวต้านทาน 10kΩ/20kΩ แบ่งแรงดันก่อนเข้า A0</li>
+      <li>สายที่ตัดกันแบบมีส่วนโค้ง (SDA ข้าม D1) คือไม่ได้เชื่อมกัน</li>
+    </ul>
+  </section>
+
+</div>
+
+<script>
+(() => {
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs, parent) => {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  };
+
+  // ----- board pins -----
+  const TOP = ["Vin","GND","RST","EN","3V3","CLK","SD0","CMD","SD1","SD2","SD3","RSV","RSV","A0"];
+  const BOT = ["3V3","GND","TX","RX","D8","D7","D6","D5","GND","3V3","D4","D3","D2","D1","D0"];
+  const USED = new Set(["T:Vin","T:GND1","T:A0","B:GND1","B:D7","B:D6","B:D5","B:GND8","B:3V39","B:D2","B:D1"]);
+  const drawRow = (names, y, labelY, gId, side) => {
+    const g = document.getElementById(gId);
+    names.forEach((n, i) => {
+      const x = 320 + 30 * i;
+      const key = side + ":" + n + ((n === "GND" || n === "3V3") ? i : "");
+      const used = USED.has(key) || USED.has(side + ":" + n);
+      el("circle", { cx: x, cy: y, r: 6.5, fill: used ? "#e2c46b" : "#8a7a48", stroke: "#0e1318", "stroke-width": 1.5 }, g);
+      el("circle", { cx: x, cy: y, r: 2.5, fill: "#1b222b" }, g);
+      const t = el("text", { class: "pin-lbl", x, y: labelY, "text-anchor": "middle" }, g);
+      t.textContent = n;
+      if (!used) t.setAttribute("opacity", ".5");
+    });
+  };
+  drawRow(TOP, 188, 210, "pins-top", "T");
+  drawRow(BOT, 332, 318, "pins-bottom", "B");
+
+  // ----- LEDs -----
+  const ledG = document.getElementById("leds");
+  [["r", 380], ["y", 450], ["g", 520]].forEach(([c, x]) => {
+    const g = el("g", { class: "led led-" + c, id: "led-" + c }, ledG);
+    el("line", { x1: x - 5, y1: 440, x2: x - 5, y2: 458, stroke: "#9aa3ad", "stroke-width": 2.5 }, g);
+    el("line", { x1: x + 5, y1: 494, x2: x + 5, y2: 508, stroke: "#9aa3ad", "stroke-width": 2.5 }, g);
+    el("line", { x1: x - 5, y1: 494, x2: x - 5, y2: 500, stroke: "#9aa3ad", "stroke-width": 2.5 }, g);
+    el("path", { class: "led-body", d: `M${x-13} 492 V470 a13 13 0 0 1 26 0 V492 Z` }, g);
+    el("rect", { class: "led-body", x: x - 15, y: 490, width: 30, height: 5, rx: 1.5 }, g);
+    // leg from cathode to resistor
+    el("path", { d: `M${x+5} 508 V512 H${x} V516`, fill: "none", stroke: "#9aa3ad", "stroke-width": 2.5 }, g);
+    // resistor 220Ω (red-red-brown)
+    el("rect", { x: x - 7, y: 516, width: 14, height: 32, rx: 6, fill: "#d9c39a", stroke: "#a8916a" }, g);
+    [["#c62828", 522], ["#c62828", 529], ["#6d4c41", 536], ["#c9a227", 542]].forEach(([f, yy]) =>
+      el("rect", { x: x - 7, y: yy, width: 14, height: 3, fill: f }, g));
+    const t = el("text", { class: "res-lbl", x: x + 12, y: 536 }, g);
+    t.textContent = "220Ω";
+    const p = el("text", { class: "res-lbl", x: x - 20, y: 458, "text-anchor": "end" }, g);
+    p.textContent = "+";
+  });
+
+  // ----- hover a table row → highlight its wires -----
+  const svg = document.getElementById("board");
+  document.querySelectorAll("#wiring tr[data-k]").forEach(tr => {
+    const k = tr.dataset.k;
+    tr.addEventListener("mouseenter", () => {
+      svg.classList.add("focus");
+      svg.querySelectorAll(`.wire[data-k="${k}"]`).forEach(w => w.classList.add("hl"));
+    });
+    tr.addEventListener("mouseleave", () => {
+      svg.classList.remove("focus");
+      svg.querySelectorAll(".wire.hl").forEach(w => w.classList.remove("hl"));
+    });
+  });
+
+  // ----- same math as the ESP8266 sketch -----
+  const RAW_CLEAN = 252, RAW_YELLOW = 332, RAW_RED = 625;
+  const MGL_YELLOW = 0.10, MGL_RED = 0.25, VC = 5.0, ADC_MAX_V = 3.2;
+  const rawToRs = raw => {
+    let v = raw / 1023 * ADC_MAX_V;
+    v = Math.min(Math.max(v, 0.01), VC - 0.01);
+    return (VC - v) / v;
+  };
+  const rsLow = rawToRs(RAW_YELLOW), rsHigh = rawToRs(RAW_RED);
+  const curveB = Math.log(MGL_RED / MGL_YELLOW) / Math.log(rsHigh / rsLow);
+  const curveA = MGL_YELLOW / Math.pow(rsLow, curveB);
+  const rawToMgL = raw => {
+    if (raw <= RAW_CLEAN) return 0;
+    if (raw < RAW_YELLOW) return MGL_YELLOW * (raw - RAW_CLEAN) / (RAW_YELLOW - RAW_CLEAN);
+    return curveA * Math.pow(rawToRs(raw), curveB);
+  };
+  const levelFor = raw => raw > RAW_RED ? 2 : raw >= RAW_YELLOW ? 1 : 0;
+
+  const LBL = ["ต่ำ", "กลาง", "สูง"];
+  const OLED = ["SAFE", "WARNING", "DANGER"];
+  const TG = ["🟢 ปลอดภัย", "🟡 ตรวจพบแอลกอฮอล์/เฝ้าระวัง", "🔴 เกินเกณฑ์กฎหมาย!"];
+  const $ = id => document.getElementById(id);
+  const slider = $("raw");
+
+  const render = () => {
+    const raw = +slider.value;
+    const mgL = rawToMgL(raw);
+    const lv = levelFor(raw);
+    $("vRaw").textContent = raw;
+    $("vMgl").textContent = mgL.toFixed(3);
+    $("vMgp").textContent = Math.round(mgL * 200);
+    const pill = $("vLvl");
+    pill.textContent = LBL[lv];
+    pill.className = "pill l" + lv;
+
+    $("led-g").classList.toggle("on", lv === 0);
+    $("led-y").classList.toggle("on", lv === 1);
+    $("led-r").classList.toggle("on", lv === 2);
+
+    $("o1").textContent = OLED[lv];
+    $("o2").firstChild.nodeValue = mgL.toFixed(3);
+    $("o3").textContent = `raw: ${raw} / 1023`;
+    $("oled").classList.toggle("danger", lv === 2);
+
+    let msg = `${TG[lv]}\nแอลกอฮอล์ ≈ ${mgL.toFixed(3)} mg/L\nraw: ${raw} / 1023`;
+    if (raw >= 1020) msg += "\n⚠️ ค่าเต็มสเกล ค่าจริงอาจสูงกว่านี้";
+    $("tgMsg").textContent = msg;
+  };
+
+  // ----- save diagram as PNG -----
+  // Copies each element's computed style inline (classes and CSS variables don't survive
+  // serialization), draws the SVG onto a 2x canvas, then downloads it.
+  const STYLE_PROPS = ["fill", "fill-opacity", "stroke", "stroke-width", "stroke-linecap",
+    "stroke-linejoin", "stroke-opacity", "opacity", "font-family", "font-size",
+    "font-weight", "text-anchor", "filter"];
+  const inlineStyles = (src, dst) => {
+    const cs = getComputedStyle(src);
+    dst.setAttribute("style", STYLE_PROPS.map(p => `${p}:${cs.getPropertyValue(p)}`).join(";"));
+    for (let i = 0; i < src.children.length; i++) inlineStyles(src.children[i], dst.children[i]);
+  };
+
+  const saveBtn = $("savePng"), saveMsg = $("saveMsg");
+  saveBtn.addEventListener("click", () => {
+    saveBtn.disabled = true;
+    saveMsg.textContent = "กำลังสร้างภาพ...";
+    svg.classList.remove("focus");
+
+    const W = 1150, H = 650, SCALE = 2;
+    const clone = svg.cloneNode(true);
+    inlineStyles(svg, clone);
+    clone.removeAttribute("class");
+    clone.setAttribute("xmlns", NS);
+    clone.setAttribute("width", W * SCALE);
+    clone.setAttribute("height", H * SCALE);
+    const bg = document.createElementNS(NS, "rect");
+    bg.setAttribute("width", W);
+    bg.setAttribute("height", H);
+    bg.setAttribute("fill", getComputedStyle(document.querySelector(".card")).backgroundColor);
+    clone.insertBefore(bg, clone.firstChild);
+
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = W * SCALE;
+      canvas.height = H * SCALE;
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(blob => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `alcohol-wiring-raw${slider.value}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+        saveMsg.textContent = "บันทึกแล้ว ดูในโฟลเดอร์ Downloads";
+        saveBtn.disabled = false;
+      }, "image/png");
+    };
+    img.onerror = () => {
+      saveMsg.textContent = "สร้างภาพไม่สำเร็จ ลองเปิดไฟล์ใน Chrome แล้วกดใหม่";
+      saveBtn.disabled = false;
+    };
+    img.src = "data:image/svg+xml;charset=utf-8," +
+      encodeURIComponent(new XMLSerializer().serializeToString(clone));
+  });
+
+  slider.addEventListener("input", render);
+  document.querySelectorAll(".presets button").forEach(b =>
+    b.addEventListener("click", () => { slider.value = b.dataset.v; render(); }));
+  render();
+})();
+</script>
+</body>
+</html>
